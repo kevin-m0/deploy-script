@@ -4,7 +4,7 @@ import path from 'path';
 import AdmZip from 'adm-zip';
 import { Octokit } from 'octokit';
 
-const DIGITALOCEAN_TOKEN = process.env.DO_TOKEN;
+// const DIGITALOCEAN_TOKEN = process.env.DO_TOKEN;
 const KOYEB_API_BASE_URL = 'https://app.koyeb.com/';
 const KOYEB_API_TOKEN = process.env.KOYEB_API_TOKEN;
 const GITHUB_TOKEN = process.env.GH_TOKEN; // GitHub PAT with "repo" scope
@@ -73,8 +73,11 @@ async function pushDirectoryToRepo(localPath, repoName, branch = 'main') {
 }
 
 // add error handling as it is given in koyeb api reference
-async function deployApp(spec) {
-  const createApp = await fetch(`${KOYEB_API_BASE_URL}/v1/apps`, {
+async function deployApp(repoName) {
+  console.log('inside deploy');
+
+  const repoUrl = `github.com/kevin-m0/${repoName}`;
+  const createApp = await fetch(`${KOYEB_API_BASE_URL}v1/apps`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${KOYEB_API_TOKEN}`,
@@ -84,9 +87,13 @@ async function deployApp(spec) {
   });
 
   const appData = await createApp.json();
-  const appId = appData.apps.id;
 
-  const serviceResponse = await fetch(`${KOYEB_API_BASE_URL}/v1/services`, {
+  const appId = await appData.app.id;
+
+  // sample app created
+  //  0a5a847c-eb61-4fa4-bfea-6f80df195485
+
+  const serviceResponse = await fetch(`${KOYEB_API_BASE_URL}v1/services`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${KOYEB_API_TOKEN}`,
@@ -98,86 +105,44 @@ async function deployApp(spec) {
         name: 'primary',
         type: 'WEB',
         strategy: {
-          type: 'DEPLOYMENT_STRATEGY_TYPE_INVALID',
+          type: 'DEPLOYMENT_STRATEGY_TYPE_ROLLING',
         },
-        routes: [
-          {
-            port: 0,
-            path: 'string',
-          },
-        ],
         ports: [
           {
-            port: 5173,
+            port: '3000',
             protocol: 'http',
           },
         ],
-        regions: ['string'],
-        scalings: [
+        routes: [
           {
-            scopes: ['string'],
-            min: 0,
-            max: 0,
-            targets: [
-              {
-                average_cpu: {
-                  value: 0,
-                },
-                average_mem: {
-                  value: 0,
-                },
-                requests_per_second: {
-                  value: 0,
-                },
-                concurrent_requests: {
-                  value: 0,
-                },
-                requests_response_time: {
-                  value: 0,
-                  quantile: 0,
-                },
-                sleep_idle_delay: {
-                  value: 0,
-                  deep_sleep_value: 0,
-                  light_sleep_value: 0,
-                },
-              },
-            ],
+            port: '3000',
+            path: '/',
           },
         ],
+        regions: ['was'],
         instance_types: [
           {
-            scopes: ['string'],
-            type: 'string',
+            scopes: ['region:was'],
+            type: 'free',
+          },
+        ],
+        scalings: [
+          {
+            scopes: ['region:was'],
+            min: 0,
+            max: 1,
           },
         ],
         skip_cache: true,
         git: {
-          repository:
-            'https://github.com/kevin-m0/generated-app-1757325633728-frontend',
+          repository: repoUrl,
           branch: 'main',
-          sha: 'string',
-          no_deploy_on_push: false,
+          // sha: '',
+          no_deploy_on_push: true,
           workdir: '/',
           buildpack: {
             build_command: 'npm run build',
             run_command: 'npm run start',
-            privileged: true,
-          },
-        },
-        archive: {
-          id: 'string',
-          buildpack: {
-            build_command: 'string',
-            run_command: 'string',
-            privileged: true,
-          },
-          docker: {
-            dockerfile: 'string',
-            entrypoint: ['string'],
-            command: 'string',
-            args: ['string'],
-            target: 'string',
             privileged: true,
           },
         },
@@ -186,6 +151,10 @@ async function deployApp(spec) {
   });
 
   const serviceData = await serviceResponse.json();
+
+  console.log(serviceData, 'serviceData');
+
+  // example service id is 3ea4794b-4eda-4831-a4eb-862b49ff7a00
 
   const deploymentResponse = await fetch(
     `${KOYEB_API_BASE_URL}v1/deployments/{id}`,
@@ -201,15 +170,17 @@ async function deployApp(spec) {
 
   const deploymentData = await deploymentResponse.json();
 
+  console.log(deploymentData, 'deployment data');
+
   if (deploymentData.deployment.status === 'HEALTHY')
     return `https://${appData.apps.name}/koyeb.app`;
   else return deploymentData.deployment.status;
 }
 
+// https://generated-app-1757887270850-metaverseventures-3658cb27.koyeb.app/
+
 async function main() {
   fs.mkdirSync(TMP_DIR, { recursive: true });
-
-  console.log(login, 'username of github');
 
   // 1. Download zip
   const zipPath = path.join(TMP_DIR, 'code.zip');
@@ -234,10 +205,14 @@ async function main() {
     `${APP_NAME}-backend`
   );
 
-  console.log('Repositories created and pushed:');
   console.log(frontendRepo.html_url, backendRepo.html_url);
 
   fs.rmSync(TMP_DIR, { recursive: true, force: true });
+
+  const link = await deployApp(`${APP_NAME}-frontend`);
+  // const link2 = await deployApp(`${APP_NAME}-backend`);
+  console.log(String(link));
+  // console.log(String(link2));
 }
 
 main().catch(console.error);
